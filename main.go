@@ -229,7 +229,6 @@ func client(conn net.Conn, msgs chan<- Message, token chan<- string) {
 		exclamation := string(bytes[0])
 		if exclamation == "!" {
 			//NOTE: COMMAND SECTION;
-			//checking message not empty
 			if n > 0 {
 				msgs <- Message{
 					Type:    COMMAND,
