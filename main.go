@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math/rand"
 	"net"
 	"os"
 	"strings"
@@ -13,13 +14,15 @@ import (
 )
 
 const (
-	PORT         = "6969"
-	CONNECTED    = 0
-	DISCONNECTED = 1
-	NEWMSG       = 2
-	STRIKE_COUNT = 3
-	COMMAND      = 4
-	BAN_LIMIT    = 10.0
+	PORT          = "6969"
+	CONNECTED     = 0
+	DISCONNECTED  = 1
+	NEWMSG        = 2
+	STRIKE_COUNT  = 3
+	COMMAND       = 4
+	KILL_SIGNAL   = 5
+	BAN_LIMIT     = 10.0
+	TOKEN_KEYWORD = "Token"
 )
 
 var EOF = errors.New("EOF")
@@ -80,14 +83,19 @@ func init() {
 func main() {
 	ln, err := net.Listen("tcp", ":"+PORT)
 	if err != nil {
-		log.Fatalf("could not start tpc connetion")
+		log.Fatalf("could not start tpc connection")
 		os.Exit(1)
 	}
 
-	msgs := make(chan Message, 16)
-	go server(msgs)
-
 	log.Println(fmt.Sprintf("connected to TPC at %s", PORT))
+
+	token := genToken()
+	tokenchan := make(chan string)
+
+	msgs := make(chan Message, 16)
+
+	go server(msgs, token)
+
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -99,15 +107,31 @@ func main() {
 			conn.Close()
 		}
 
+		go client(conn, msgs, tokenchan)
+
+		takenToken := <-tokenchan
+
+		if takenToken != token {
+			conn.Write([]byte(fmt.Sprintln("Wrong token Buddy nice try")))
+			msgs <- Message{
+				Type: DISCONNECTED,
+				Conn: conn,
+			}
+			continue
+		}
+
 		msgs <- Message{
 			Type: CONNECTED,
 			Conn: conn,
 		}
-		go client(conn, msgs)
+
 	}
 }
 
-func server(msgs <-chan Message) {
+func server(msgs <-chan Message, token string) {
+
+	fmt.Printf("%s: %s\n", TOKEN_KEYWORD, token)
+
 	clients := NewHashMap[Client]()
 	banned := NewHashMap[time.Time]()
 	for {
@@ -124,7 +148,7 @@ func server(msgs <-chan Message) {
 					delete(clients.store, UID)
 					banned = false
 				} else {
-					msg.Conn.Write([]byte(fmt.Sprintf("You're banned Brah, left %d\n", BAN_LIMIT-now.Sub(bannedAt).Seconds())))
+					msg.Conn.Write([]byte(fmt.Sprintf("You're banned Brah, left %v\n", BAN_LIMIT-now.Sub(bannedAt).Seconds())))
 					msg.Conn.Close()
 				}
 			}
@@ -155,27 +179,54 @@ func server(msgs <-chan Message) {
 			}
 		case DISCONNECTED:
 			delete(clients.store, UID)
+			msg.Conn.Close()
 			log.Println("disconnected from server")
+
 		}
 	}
 }
 
-func client(conn net.Conn, msgs chan<- Message) {
+func client(conn net.Conn, msgs chan<- Message, token chan<- string) {
 	bytes := make([]byte, 64)
+
+	_, err := conn.Write([]byte("Paste Token Below\n"))
+	if err != nil {
+		fmt.Printf("couldnt write the client: %v\n", err)
+		conn.Close()
+	}
+
+	n, err := conn.Read(bytes)
+	if err != nil {
+		fmt.Printf("couldnt read the prompt: %v\n", err)
+		conn.Close()
+	}
+
+	tempToken := strings.TrimSpace(string(bytes[:n]))
+	if strings.Contains(tempToken, TOKEN_KEYWORD) {
+		tempToken = strings.TrimSpace(strings.Split(tempToken, fmt.Sprintf("%s: ", TOKEN_KEYWORD))[1])
+	}
+
+	//NOTE: wait for token verification
+	token <- tempToken
+
 	for {
 		n, err := conn.Read(bytes)
 		if err != nil {
 			//NOTE: checking EOF exception;
 			if err.Error() == EOF.Error() {
 				log.Printf("Client disconnected\n")
+				conn.Close()
 				break
 			}
 			log.Printf("could not read the msg %s\n", err)
+			conn.Close()
+			break
 		}
 
 		exclamation := string(bytes[0])
 		if exclamation == "!" {
 			//NOTE: COMMAND SECTION;
+			//checking message not empty
 			if n > 0 {
 				msgs <- Message{
 					Type:    COMMAND,
@@ -195,4 +246,10 @@ func client(conn net.Conn, msgs chan<- Message) {
 		}
 	}
 
+}
+
+func genToken() string {
+	bytes := make([]byte, 16)
+	rand.Read(bytes)
+	return fmt.Sprintf("%x", bytes)
 }
