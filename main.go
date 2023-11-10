@@ -25,7 +25,10 @@ const (
 	TOKEN_KEYWORD = "Token"
 )
 
-var EOF = errors.New("EOF")
+var (
+	EOF        = errors.New("EOF")
+	RATE_LIMIT = time.Duration.Seconds(4)
+)
 
 type MessageType int
 type USR_ID string
@@ -109,21 +112,20 @@ func main() {
 
 		go client(conn, msgs, tokenchan)
 
-		takenToken := <-tokenchan
-
-		if takenToken != token {
-			conn.Write([]byte(fmt.Sprintln("Wrong token Buddy nice try")))
+		go func() {
+			takenToken := <-tokenchan
+			if takenToken != token {
+				conn.Write([]byte(fmt.Sprintln("Wrong token Buddy nice try")))
+				msgs <- Message{
+					Type: DISCONNECTED,
+					Conn: conn,
+				}
+			}
 			msgs <- Message{
-				Type: DISCONNECTED,
+				Type: CONNECTED,
 				Conn: conn,
 			}
-			continue
-		}
-
-		msgs <- Message{
-			Type: CONNECTED,
-			Conn: conn,
-		}
+		}()
 
 	}
 }
@@ -238,6 +240,7 @@ func client(conn net.Conn, msgs chan<- Message, token chan<- string) {
 			}
 			continue
 		}
+
 		msgs <- Message{
 			Type:    NEWMSG,
 			Conn:    conn,
