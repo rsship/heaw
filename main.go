@@ -216,11 +216,12 @@ func client(conn net.Conn, msgs chan<- Message, token chan<- string) {
 		if err != nil {
 			//NOTE: checking EOF exception;
 			if err.Error() == EOF.Error() {
-				log.Printf("Client disconnected\n")
+				log.Printf("could not read the msg %s\n", err)
 				conn.Close()
 				break
 			}
-			log.Printf("could not read the msg %s\n", err)
+
+			log.Printf("Client disconnected\n")
 			conn.Close()
 			break
 		}
