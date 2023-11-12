@@ -1,5 +1,5 @@
 build: 
-	@go build -o bin/ . 
+	@go build -o bin/  . 
 
 run: build
 	@bin/heaw
