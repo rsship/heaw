@@ -104,8 +104,8 @@ func server(msgs <-chan Message, token string) {
 
 	fmt.Printf("%s: %s\n", TOKEN_KEYWORD, token)
 
-	clients := internal.NewStore[Client]()
-	banned := internal.NewStore[time.Time]()
+	clients := internal.NewInternalStore[USR_ID, Client]()
+	banned := internal.NewInternalStore[USR_ID, time.Time]()
 
 	for {
 		msg := <-msgs
@@ -113,41 +113,44 @@ func server(msgs <-chan Message, token string) {
 
 		switch msg.Type {
 		case CONNECTED:
-			bannedAt, banned := banned.Data[string(UID)]
+			bannedAt, _ := banned.Get(UID)
 			now := time.Now()
 
-			if banned {
-				if now.Sub(bannedAt).Seconds() >= BAN_LIMIT {
-					delete(clients.Data, string(UID))
-					banned = false
+			// IF ITS BANNED
+			if bannedAt != nil {
+				if now.Sub(*bannedAt).Seconds() >= BAN_LIMIT {
+					clients.Delete(UID)
 				} else {
-					msg.Conn.Write([]byte(fmt.Sprintf("You're banned Brah, left %v\n", BAN_LIMIT-now.Sub(bannedAt).Seconds())))
+					msg.Conn.Write([]byte(fmt.Sprintf("You're banned Brah, left %v\n", BAN_LIMIT-now.Sub(*bannedAt).Seconds())))
 					msg.Conn.Close()
 				}
 			}
-
-			if !banned {
+			// IF ITS NOT BANNED
+			if bannedAt == nil {
 				log.Printf("%s connected\n", UID)
-				clients.SetAuthor(string(UID), Client{Conn: msg.Conn})
+				clients.Set(UID, Client{Conn: msg.Conn})
 				msg.Conn.Write([]byte("Wellcome to server Brah!\n"))
 			}
 
 		case NEWMSG:
-			client := clients.GetAuthor(string(UID))
-			now := time.Now()
+			client, _ := clients.Get(UID)
+			if client != nil {
+				now := time.Now()
+				if now.Sub(client.LastMsg).Seconds() >= MESSAGE_RATE {
+					client.LastMsg = time.Now()
 
-			if now.Sub(client.LastMsg).Seconds() < MESSAGE_RATE {
-				fmt.Println("to many messages")
-				continue
-			}
+					log.Printf("the msg sent by %s", UID)
 
-			log.Printf("the msg sent by %s", UID)
-			for id, client := range clients.Data {
-				if id != string(msg.USR_ID) {
-					client.Conn.Write(msg.Content)
+					clients.ForEach(func(id USR_ID, client Client) {
+						//note; do not send msg himself/herself;
+						if id != msg.USR_ID {
+							client.Conn.Write(msg.Content)
+						}
+					})
+				} else {
+					client.Conn.Write([]byte("Brah, Slow Down, Just Relax\n"))
 				}
 			}
-			client.LastMsg = time.Now()
 
 		case COMMAND:
 			cmds := strings.Split(string(msg.Content), " ")
@@ -155,10 +158,10 @@ func server(msgs <-chan Message, token string) {
 
 			if cmd == "ban" {
 				ID := USR_ID(cmds[1])
-				delete(clients.Data, string(ID))
+				clients.Delete(ID)
 			}
 		case DISCONNECTED:
-			delete(clients.Data, string(UID))
+			clients.Delete(UID)
 			msg.Conn.Close()
 			log.Println("disconnected from server")
 
