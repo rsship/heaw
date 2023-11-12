@@ -15,15 +15,18 @@ import (
 
 const (
 	PORT          = "6969"
-	CONNECTED     = 0
-	DISCONNECTED  = 1
-	NEWMSG        = 2
-	STRIKE_COUNT  = 3
-	COMMAND       = 4
-	KILL_SIGNAL   = 5
 	BAN_LIMIT     = 10.0
 	MESSAGE_RATE  = 1.0
 	TOKEN_KEYWORD = "Token"
+)
+
+const (
+	CONNECTED = iota + 1
+	DISCONNECTED
+	NEWMSG
+	STRIKE_COUNT
+	COMMAND
+	KILL_SIGNAL
 )
 
 var (
@@ -136,6 +139,7 @@ func server(msgs <-chan Message, token string) {
 			client, _ := clients.Get(UID)
 			if client != nil {
 				now := time.Now()
+				fmt.Println(now.Sub(client.LastMsg).Seconds() >= MESSAGE_RATE)
 				if now.Sub(client.LastMsg).Seconds() >= MESSAGE_RATE {
 					client.LastMsg = time.Now()
 
