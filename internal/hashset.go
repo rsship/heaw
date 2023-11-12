@@ -1,36 +1,73 @@
 package internal
 
 import (
+	"errors"
 	"sync"
 )
 
-type Store[T interface{}] struct {
-	Data map[string]T
-	mu   *sync.RWMutex
+type Storer[K any, V any] interface {
+	Get(K) (*V, error)
+	Set(K, V) bool
+	Update(K, V) V
+	Delete(K) bool
+	ForEach(fn func(K, V))
 }
 
-func NewStore[T interface{}]() *Store[T] {
-	return &Store[T]{
-		Data: make(map[string]T),
-		mu:   &sync.RWMutex{},
+type InternalStore[K comparable, V any] struct {
+	data map[K]V
+	mut  *sync.RWMutex
+}
+
+func NewInternalStore[K comparable, V any]() *InternalStore[K, V] {
+	return &InternalStore[K, V]{
+		data: make(map[K]V),
+		mut:  &sync.RWMutex{},
 	}
 }
 
-type Author[T interface{}] interface {
-	GetAuthor(string) T
-	SetAuthor(string, T)
+func (s *InternalStore[K, V]) Get(key K) (*V, error) {
+	s.mut.RLock()
+	defer s.mut.RUnlock()
+	data, ok := s.data[key]
+	if !ok {
+		return nil, errors.New("NOT FOUND")
+	}
+	return &data, nil
 }
 
-func (s *Store[T]) GetAuthor(id string) T {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+func (s *InternalStore[K, V]) Set(key K, val V) bool {
+	s.mut.Lock()
+	defer s.mut.Unlock()
 
-	return s.Data[id]
+	s.data[key] = val
+
+	return true
 }
 
-func (s *Store[T]) SetAuthor(id string, client T) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *InternalStore[K, V]) Update(key K, val V) V {
 
-	s.Data[id] = client
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	data := s.data[key]
+	s.data[key] = val
+
+	return data
+}
+
+func (s *InternalStore[K, V]) Delete(key K) bool {
+
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	delete(s.data, key)
+
+	return true
+}
+
+func (s *InternalStore[K, V]) ForEach(fn func(K, V)) {
+
+	for k, v := range s.data {
+		go fn(k, v)
+	}
 }
