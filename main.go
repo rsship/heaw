@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rship/heaw/internal"
 )
@@ -24,7 +25,6 @@ const (
 	CONNECTED = iota + 1
 	DISCONNECTED
 	NEWMSG
-	STRIKE_COUNT
 	COMMAND
 	KILL_SIGNAL
 )
@@ -131,7 +131,7 @@ func server(msgs <-chan Message, token string) {
 			// IF ITS NOT BANNED
 			if bannedAt == nil {
 				log.Printf("%s connected\n", UID)
-				clients.Set(UID, Client{Conn: msg.Conn})
+				clients.Set(UID, Client{Conn: msg.Conn, LastMsg: now})
 				msg.Conn.Write([]byte("Wellcome to server Brah!\n"))
 			}
 
@@ -139,21 +139,38 @@ func server(msgs <-chan Message, token string) {
 			client, _ := clients.Get(UID)
 			if client != nil {
 				now := time.Now()
-				fmt.Println(now.Sub(client.LastMsg).Seconds() >= MESSAGE_RATE)
 				if now.Sub(client.LastMsg).Seconds() >= MESSAGE_RATE {
-					client.LastMsg = time.Now()
+					if utf8.ValidString(string(msg.Content)) {
+						client.LastMsg = now
 
-					log.Printf("the msg sent by %s", UID)
+						log.Printf("the msg sent by %s", UID)
 
-					clients.ForEach(func(id USR_ID, client Client) {
-						//note; do not send msg himself/herself;
-						if id != msg.USR_ID {
-							client.Conn.Write(msg.Content)
+						clients.ForEach(func(id USR_ID, client Client) {
+							//note; do not send msg himself/herself;
+							if id != msg.USR_ID {
+								client.Conn.Write(msg.Content)
+							}
+						})
+
+					} else {
+						client.StrikeCount += 1
+						if client.StrikeCount >= BAN_LIMIT {
+							banned.Set(UID, now)
+							msg.Conn.Write([]byte("You're banned Brah\n"))
+							msg.Conn.Close()
 						}
-					})
+					}
 				} else {
+					client.StrikeCount += 1
 					client.Conn.Write([]byte("Brah, Slow Down, Just Relax\n"))
+					if client.StrikeCount >= BAN_LIMIT {
+						banned.Set(UID, now)
+						msg.Conn.Write([]byte("You're banned Brah\n"))
+						msg.Conn.Close()
+					}
 				}
+			} else {
+				msg.Conn.Close()
 			}
 
 		case COMMAND:
