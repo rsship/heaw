@@ -1,10 +1,12 @@
-*** heaw (only man in the chat)
+## heaw (only man in the chat)
 
-## Usage: 
+####  Usage: 
 ```bash
     go build . 
 ```
 
-### note: heaw doest has client yet, you can use natcat to connect hear server
+
+
+#####  note: heaw doest has client yet, you can use natcat to connect heaw server
 
 
